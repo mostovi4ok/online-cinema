@@ -1,0 +1,9 @@
+{
+  "namespace": "Api",
+  "type": "record",
+  "name": "EmailConfirmation",
+  "fields": [
+    { "name": "user_email", "type": "string" },
+    { "name": "link", "type": "string" }
+  ]
+}

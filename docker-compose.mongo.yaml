@@ -1,0 +1,36 @@
+services:
+  mongors1:
+    image: mongo
+    command: mongod --shardsvr --replSet mongors1 --dbpath /data/db --port 27017
+    networks:
+      - etl_kafka_to_mongo_network
+      - worker
+    expose:
+      - "27017"
+  # ---------------------------------------------------------------------------------------------------------
+  mongors2:
+    image: mongo
+    command: mongod --shardsvr --replSet mongors2 --dbpath /data/db --port 27017
+    networks:
+      - etl_kafka_to_mongo_network
+      - worker
+    expose:
+      - "27017"
+  # ---------------------------------------------------------------------------------------------------------
+  mongocfg:
+    image: mongo
+    command: mongod --configsvr --replSet mongors1conf --dbpath /data/db --port 27017
+    networks:
+      - etl_kafka_to_mongo_network
+      - worker
+    expose:
+      - "27017"
+  # ---------------------------------------------------------------------------------------------------------
+  mongos:
+    image: mongo
+    command: mongos --configdb mongors1conf/mongocfg1:27017,mongocfg2:27017,mongocfg3:27017 --port 27017 --bind_ip_all
+    networks:
+      - etl_kafka_to_mongo_network
+      - worker
+    expose:
+      - "27017"

@@ -1,0 +1,10 @@
+{
+  "namespace": "Notification",
+  "type": "record",
+  "name": "ProfileDLQ",
+  "fields": [
+    { "name": "method_send", "type": "string" },
+    { "name": "profile_id", "type": "string" },
+    { "name": "message", "type": "string" }
+  ]
+}

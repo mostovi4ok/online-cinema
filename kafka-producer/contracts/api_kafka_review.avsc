@@ -1,0 +1,18 @@
+{
+  "namespace": "Api",
+  "type": "record",
+  "name": "FavouritesCollector",
+  "fields": [
+    { "name": "user_id", "type": "string" },
+    { "name": "film_id", "type": "string" },
+    { "name": "review", "type": "string" },
+    {
+      "name": "action",
+      "type": {
+        "type": "enum",
+        "name": "Action",
+        "symbols": ["review", "rate", "favourite", "unfavourite"]
+      }
+    }
+  ]
+}

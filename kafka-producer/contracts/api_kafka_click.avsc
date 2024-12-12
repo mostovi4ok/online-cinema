@@ -1,0 +1,11 @@
+{
+  "namespace": "Api",
+  "type": "record",
+  "name": "ClickCollector",
+  "fields": [
+    { "name": "user_id", "type": "string" },
+    { "name": "element_id", "type": "string" },
+    { "name": "group_id", "type": "string" },
+    { "name": "time", "type": "string" }
+  ]
+}

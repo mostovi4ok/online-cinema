@@ -1,0 +1,106 @@
+version: "1.0"
+services:
+  mongors1n1:
+    container_name: MongoDB-Shard1-Node1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data1:/data/db
+
+  mongors1n2:
+    container_name: MongoDB-Shard1-Node2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data2:/data/db
+
+  mongors1n3:
+    container_name: MongoDB-Shard1-Node3
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data3:/data/db
+
+  mongors2n1:
+    container_name: MongoDB-Shard2-Node1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data4:/data/db
+
+  mongors2n2:
+    container_name: MongoDB-Shard2-Node2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data5:/data/db
+
+  mongors2n3:
+    container_name: MongoDB-Shard2-Node3
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data6:/data/db
+
+  mongocfg1:
+    container_name: Mongo-Config-1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config1:/data/db
+
+  mongocfg2:
+    container_name: Mongo-Config-2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config2:/data/db
+
+  mongocfg3:
+    container_name: Mongo-Config-3
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config3:/data/db
+
+  mongos1:
+    container_name: MongoRouter-1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongos
+    ports:
+      - 27017:27017
+    depends_on:
+      - mongocfg1
+      - mongocfg2
+      - mongocfg3
+
+  mongos2:
+    container_name: MongoRouter-2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongos
+    depends_on:
+      - mongocfg1
+      - mongocfg2
+      - mongocfg3
+
+volumes:
+  mongo_cluster_data1:
+  mongo_cluster_data2:
+  mongo_cluster_data3:
+  mongo_cluster_data4:
+  mongo_cluster_data5:
+  mongo_cluster_data6:
+  mongo_cluster_config1:
+  mongo_cluster_config2:
+  mongo_cluster_config3:

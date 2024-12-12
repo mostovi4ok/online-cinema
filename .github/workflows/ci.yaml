@@ -1,0 +1,128 @@
+name: Lint application
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: python
+    runs-on: ubuntu-latest 
+
+    strategy:
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: |
+          uv python install ${{ matrix.python-version }}
+          uv venv -p ${{ matrix.python-version }} .venv
+
+      - name: Install requirements
+        run: |
+          uv pip install -r requirements.txt
+
+      - name: Create folder for report
+        run: |
+          mkdir -p reports/ruff/
+          mkdir -p reports/pyright/
+          mkdir -p reports/tests/
+
+      - name: Check with ruff
+        id: ruff_check
+        run: |
+          .venv/bin/ruff check . | tee reports/ruff/ruff_check.txt 
+          exit "${PIPESTATUS[0]}"
+
+      - name: Format with ruff
+        if: always()
+        id: ruff_format
+        run: |
+          .venv/bin/ruff format . --check --diff | tee reports/ruff/ruff_format.txt 
+          exit "${PIPESTATUS[0]}"
+
+      - name: Run pyright
+        if: always()
+        id: pyright
+        run: |
+          . .venv/bin/activate
+          pyright | tee reports/pyright/pyright.txt 
+          exit "${PIPESTATUS[0]}"
+
+      - name: Run containers
+        if: always()
+        run: |
+          cd tests/functional && docker compose up -d
+
+      - name:  Configuration mongo
+        if: always()
+        run: |
+          cd tests/functional && bash entrypoint_mongo.sh
+          docker restart Profile_test
+          docker restart UGC_test
+
+      - name:  Run tests
+        if: always()
+        id: tests
+        run: |
+          docker exec Tests bash -c 'bash wait_for_services.sh'
+          docker exec Tests bash -c 'python -m pytest' | tee reports/tests/tests.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Stop containers
+        if: always()
+        run: |
+          cd tests/functional && docker compose down
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.python-version }}
+          path: reports/
+
+  notification:
+    name: Telegram Notification
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: always()
+    needs: build
+    steps:
+      - name: Send notification in telegram on success
+        if:  needs.build.result == 'success'
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            ${{ github.actor }} created ${{ github.event_name }} in repository https://github.com/${{ github.repository }}.
+            Where latest commit: ${{ github.event.pull_request.head.sha}}.
+
+            Please review the changes and check the code: 
+            https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+
+            Pipeline status: ${{ needs.build.result }}.😎
+
+      - name: Send notification in telegram on failure
+        if:  needs.build.result == 'failure'
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            ${{ github.actor }} created ${{ github.event_name }} in repository https://github.com/${{ github.repository }}.
+            Where latest commit: ${{ github.event.pull_request.head.sha}}.
+
+            Please review the changes and check the code: 
+            https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+
+            Pipeline status: ${{ needs.build.result }}.😢

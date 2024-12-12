@@ -1,0 +1,54 @@
+services:
+  logstash:
+    image: logstash:8.10.2
+    container_name: ELK-Logstash
+    restart: unless-stopped
+    environment:
+      XPACK_MONITORING_ENABLED: "false"
+      ES_HOST: "elasticsearch:9200"
+    volumes:
+      - ./deploy/logstash.conf:/config/logstash.conf:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - elk_network
+    expose:
+      - "5044/udp"
+    command: logstash -f /config/logstash.conf
+
+  elasticsearch:
+    image: elasticsearch:8.10.2
+    container_name: ELK-Elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 0.5GB
+    volumes:
+      - ./deploy/esdata:/usr/share/elasticsearch/data
+    networks:
+      - elk_network
+    expose:
+      - "9200"
+
+  kibana:
+    image: kibana:8.10.2
+    container_name: ELK-Kibana
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - elk_network
+      - main_network
+    expose:
+      - "5601"
+
+networks:
+  elk_network:
+    driver: bridge

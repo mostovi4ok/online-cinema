@@ -1,0 +1,10 @@
+{
+  "namespace": "Api",
+  "type": "record",
+  "name": "UrlTimeCollector",
+  "fields": [
+    { "name": "user_id", "type": "string" },
+    { "name": "url", "type": "string" },
+    { "name": "spent_time", "type": "long" }
+  ]
+}

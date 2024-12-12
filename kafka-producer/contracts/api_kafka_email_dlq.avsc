@@ -1,0 +1,20 @@
+{
+  "namespace": "Email",
+  "type": "record",
+  "name": "EmailDLQ",
+  "fields": [
+    { "name": "notification_id", "type": "string" },
+    { "name": "subject", "type": "string" },
+    { "name": "content", "type": "string" },
+    {
+      "name": "recipient_variables",
+      "type": {
+        "type": "map",
+        "values": {
+          "type": "map",
+          "values": ["long", "string"]
+        }
+      }
+    }
+  ]
+}

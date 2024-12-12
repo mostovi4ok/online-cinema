@@ -1,0 +1,31 @@
+{
+  "type": "record",
+  "name": "New_series_dlq",
+  "namespace": "Notification",
+  "fields": [
+    {
+      "name": "content_id",
+      "type": "string",
+      "doc": "Идентификатор сериала"
+    },
+    {
+      "name": "series_number",
+      "type": "int",
+      "doc": "Номер серии"
+    },
+    {
+      "name": "link",
+      "type": "string",
+      "doc": "Ссылка для просмотра"
+    },
+    {
+      "name": "method_send",
+      "type": {
+        "type": "enum",
+        "name": "method_send",
+        "symbols": ["email", "push", "sms", "websocket", "social_network"]
+      },
+      "doc": "Канал доставки уведомления"
+    }
+  ]
+}

@@ -1,0 +1,134 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-06-21 15:14+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: .\movies\admin.py:48 .\movies\models.py:30 .\movies\models.py:45
+msgid "Genres"
+msgstr "Genres"
+
+#: .\movies\admin.py:53 .\movies\models.py:54 .\movies\models.py:79
+msgid "Persons"
+msgstr "Persons"
+
+#: .\movies\apps.py:8
+msgid "movies"
+msgstr ""
+
+#: .\movies\models.py:9
+#, fuzzy
+#| msgid "creation_date"
+msgid "created"
+msgstr "Creation date"
+
+#: .\movies\models.py:10
+msgid "modified"
+msgstr ""
+
+#: .\movies\models.py:24
+msgid "name"
+msgstr "Name"
+
+#: .\movies\models.py:25 .\movies\models.py:88
+msgid "description"
+msgstr "Description"
+
+#: .\movies\models.py:29 .\movies\models.py:44
+msgid "Genre"
+msgstr "Genre"
+
+#: .\movies\models.py:49
+msgid "full_name"
+msgstr "Full name"
+
+#: .\movies\models.py:53 .\movies\models.py:78
+msgid "Person"
+msgstr "Person"
+
+#: .\movies\models.py:62
+msgid "actor"
+msgstr ""
+
+#: .\movies\models.py:63
+msgid "writer"
+msgstr ""
+
+#: .\movies\models.py:64
+msgid "director"
+msgstr ""
+
+#: .\movies\models.py:69
+msgid "role"
+msgstr ""
+
+#: .\movies\models.py:84
+msgid "movie"
+msgstr ""
+
+#: .\movies\models.py:85
+msgid "tv_show"
+msgstr ""
+
+#: .\movies\models.py:87
+msgid "title"
+msgstr "Title"
+
+#: .\movies\models.py:89
+msgid "creation_date"
+msgstr "Creation date"
+
+#: .\movies\models.py:90
+msgid "file"
+msgstr ""
+
+#: .\movies\models.py:92
+msgid "rating"
+msgstr "Rating"
+
+#: .\movies\models.py:97
+msgid "type"
+msgstr "Type"
+
+#: .\movies\models.py:106
+msgid "Filmwork"
+msgstr "Filmwork"
+
+#: .\movies\models.py:107
+msgid "Filmworks"
+msgstr "Filmworks"
+
+#~ msgid "Создано"
+#~ msgstr "Created"
+
+#~ msgid "Изменено"
+#~ msgstr "Changed"
+
+#, fuzzy
+#~| msgid "Filmworks"
+#~ msgid "Film genres"
+#~ msgstr "Filmworks"
+
+#, fuzzy
+#~| msgid "Filmworks"
+#~ msgid "Film person"
+#~ msgstr "Filmworks"
+
+#, fuzzy
+#~| msgid "Persons"
+#~ msgid "Film persons"
+#~ msgstr "Persons"

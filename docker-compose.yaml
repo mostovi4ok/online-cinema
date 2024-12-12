@@ -1,0 +1,786 @@
+version: "1.0"
+include:
+  - docker-compose.elk.yaml
+services:
+  # БД для хранения фильмов/жанров/персон
+  postgres_db:
+    image: postgres:16.2
+    container_name: Postgres
+    env_file: "env/postgres.env"
+    volumes:
+      - postgres_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d movies_database"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+    networks:
+      - api_network
+      - etl_pg_to_es_network
+      - kafka_network
+    expose:
+      - "5432"
+
+  # БД для хранения пользователей, их истории логинов и прав
+  postgres_db_auth:
+    image: postgres:16.2
+    container_name: Postgres_auth
+    env_file: "env/postgres_auth.env"
+    volumes:
+      - postgres_db_auth:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+    networks:
+      - auth_network
+      - kafka_network
+    expose:
+      - "5432"
+  
+  # БД для хранения профилей пользователей
+  postgres_db_profile:
+    image: postgres:16.2
+    container_name: Postgres_profile
+    env_file: "env/postgres_profile.env"
+    volumes:
+      - postgres_db_profile:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d profile"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+    networks:
+      - auth_network
+    expose:
+      - "5432"
+
+  # БД ElasticSearch для поиска фильмов пользователями
+  elasticsearch_db:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.6.2
+    container_name: Elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 0.5GB
+    volumes:
+      - elasticsearch_db:/data
+    healthcheck:
+      test: curl -s http://localhost:9200 >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks:
+      - api_network
+      - etl_pg_to_es_network
+    expose:
+      - "9200"
+
+  # БД Redis для быстрого обмена и временного хранения данных между сервисами (в основном для авторизации/токенов/прав)
+  redis_db:
+    image: redis:latest
+    container_name: Redis
+    restart: unless-stopped
+    volumes:
+      - redis_db:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - api_network
+      - auth_network
+      - analytics_network
+      - etl_pg_to_es_network
+      - etl_kafka_to_ch_network
+      - etl_kafka_to_mongo_network
+    expose:
+      - "6379"
+
+  # ETL для передачи информации о фильмах из Postgres в ES для поиска
+  service_etl_pg_to_es:
+    container_name: ETL-PG-ES
+    build:
+      context: ./etl_postgres_to_es/
+    image: etl_pg_to_es:latest
+    stop_signal: SIGINT
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ./etl_postgres_to_es/:/app
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+        restart: true
+      elasticsearch_db:
+        condition: service_healthy
+        restart: true
+      redis_db:
+        condition: service_healthy
+        restart: true
+    networks:
+      - etl_pg_to_es_network
+
+  # API для быстрого поиска информации о фильмах/персонах/жанрах из ES
+  api:
+    container_name: API
+    build:
+      context: ./api/
+    image: api:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ./api/:/app/
+    depends_on:
+      elasticsearch_db:
+        condition: service_healthy
+        restart: true
+      redis_db:
+        condition: service_healthy
+        restart: true
+    networks:
+      - api_network
+      - main_network
+    expose:
+      - "8000"
+    logging:
+      driver: gelf
+      options:
+        gelf-address: udp://127.0.0.1:5044
+        tag: api
+
+  # API для регистрации, авторизации и управления ролями пользователей
+  auth_service:
+    container_name: Auth
+    build:
+      context: ./auth-service/
+    image: auth:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ./auth-service/:/app/
+    depends_on:
+      postgres_db_auth:
+        condition: service_healthy
+        restart: true
+      postgres_db_profile:
+        condition: service_healthy
+        restart: true
+      redis_db:
+        condition: service_healthy
+        restart: true
+    networks:
+      - auth_network
+      - main_network
+      - kafka_network
+    expose:
+      - "8000"
+    logging:
+      driver: gelf
+      options:
+        gelf-address: udp://127.0.0.1:5044
+        tag: auth
+  
+  # API для управления профилями пользователей
+  profile_service:
+    container_name: Profile
+    build:
+      context: ./profile-service/
+    image: profile:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ./profile-service/:/app/
+    depends_on:
+      postgres_db_profile:
+        condition: service_healthy
+        restart: true
+    networks:
+      - auth_network
+      - main_network
+      - etl_kafka_to_mongo_network
+      - kafka_network
+    expose:
+      - "8000"
+    logging:
+      driver: gelf
+      options:
+        gelf-address: udp://127.0.0.1:5044
+        tag: profile
+
+  # API получения информации об оценках/ревью/избранном из MongoDB
+  ugc_service:
+    container_name: UGC
+    build:
+      context: ./ugc-service/
+    image: ugc:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ./ugc-service/:/app/
+    depends_on:
+      redis_db:
+        condition: service_healthy
+        restart: true
+    networks:
+      - etl_kafka_to_mongo_network
+      - main_network
+    expose:
+      - "8000"
+    logging:
+      driver: gelf
+      options:
+        gelf-address: udp://127.0.0.1:5044
+        tag: ugc
+
+  # Админка для изменения информации о фильмах модераторами платформы
+  django_admin:
+    container_name: Admin
+    build:
+      context: ./django-admin/
+    image: admin:latest
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+        restart: true
+      postgres_db_auth:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - admin_static:/app/static
+      - ./django-admin/:/app/
+    networks:
+      - api_network
+      - auth_network
+      - main_network
+    expose:
+      - "8000"
+
+  # UI для Kafka
+  ui:
+    container_name: Kafka-UI
+    image: provectuslabs/kafka-ui:v0.7.0
+    environment:
+      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka-0:9092
+      - KAFKA_CLUSTERS_0_NAME=kraft
+    networks:
+      - main_network
+      - kafka_network
+    expose:
+      - "8080"
+
+  # API для сбора UGC информации
+  analytics_collector:
+    container_name: AnalyticsCollector
+    build:
+      context: ./analytics-collector/
+    image: analytics-collector:latest
+    volumes:
+      - ./analytics-collector/:/app/
+    depends_on:
+      - kafka_producer
+    networks:
+      - main_network
+      - analytics_network
+      - kafka_network
+    expose:
+      - "5000"
+
+  # API для передачи в Kafka
+  kafka_producer:
+    container_name: KafkaProducer
+    build:
+      context: ./kafka-producer/
+    image: kafka-producer:latest
+    volumes:
+      - ./kafka-producer/:/app/
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+        restart: true
+      kafka-1:
+        condition: service_healthy
+        restart: true
+      kafka-2:
+        condition: service_healthy
+        restart: true
+    networks:
+      - kafka_network
+    expose:
+      - "5000"
+
+  # Worker для  обработки уведомлений
+  worker_notification:
+    container_name: Worker-Notification
+    build: ./worker_notification
+    image: worker_notification:latest
+    depends_on:
+      mongos1:
+        condition: service_started
+        restart: true
+      postgres_db:
+        condition: service_healthy
+        restart: true
+      postgres_db_auth:
+        condition: service_healthy
+        restart: true
+      kafka-0:
+        condition: service_healthy
+        restart: true
+      kafka-1:
+        condition: service_healthy
+        restart: true
+      kafka-2:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - ./worker_notification/:/app
+    networks:
+      - kafka_network
+      - worker
+
+  # Worker для отправки уведомлений
+  worker_sender:
+    container_name: Worker-Sender
+    build: ./worker_sender
+    image: worker_sender:latest
+    depends_on:
+      mongos1:
+        condition: service_started
+        restart: true
+      kafka-0:
+        condition: service_healthy
+        restart: true
+      kafka-1:
+        condition: service_healthy
+        restart: true
+      kafka-2:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - ./worker_sender/:/app
+    networks:
+      - kafka_network
+      - worker
+
+  # Nginx
+  nginx:
+    container_name: Nginx
+    image: nginx:1.25.3
+    restart: unless-stopped
+    volumes:
+      - admin_static:/data/static
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/configs:/etc/nginx/conf.d:ro
+    depends_on:
+      - auth_service
+      - api
+    ports:
+      - "80:80"
+      - "81:81"
+      - "82:82"
+      - "83:83"
+      - "90:90"
+      - "91:91"
+      - "92:92"
+      - "93:93"
+      - "94:94"
+    networks:
+      - main_network
+
+  # Jaeger - отслеживание пути прохождения запроса по сервисам и времени обработки
+  jaeger_cinema:
+    container_name: Jaeger
+    image: jaegertracing/all-in-one:latest
+    restart: unless-stopped
+    volumes:
+      - jaeger_cinema:/root/.cassandra
+    networks:
+      - main_network
+    expose:
+      - "16686"
+
+  # Кластер Kafka vvvvvvvvvvvvvvvvvvvvvvvvvv
+  kafka-0:
+    container_name: Kafka-0
+    image: bitnami/kafka:latest
+    env_file: "env/kafka-0.env"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - etl_kafka_to_ch_network
+      - kafka_network
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "9092"
+
+  kafka-1:
+    container_name: Kafka-1
+    image: bitnami/kafka:latest
+    env_file: "env/kafka-1.env"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - etl_kafka_to_ch_network
+      - kafka_network
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "9092"
+
+  kafka-2:
+    container_name: Kafka-2
+    image: bitnami/kafka:latest
+    env_file: "env/kafka-2.env"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - etl_kafka_to_ch_network
+      - kafka_network
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "9092"
+  # Кластер Kafka ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  # Zookiper для синхронизации конфигов кластера Kafka
+  zookeeper:
+    container_name: Zookeeper
+    image: bitnami/zookeeper:3.8.0
+    restart: unless-stopped
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_PORT: 2181
+      ZOO_SERVERS: server.1=zookeeper:2888:3888
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+    healthcheck:
+      test: nc -z localhost 2181 || exit -1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - etl_kafka_to_ch_network
+    expose:
+      - "2181"
+
+  # ETL для передачи данных об оценках/ревью/избранном из Kafka в Mongo
+  service_etl_kafka_to_mongo:
+    container_name: ETL-KAFKA-MONGO
+    build: ./etl_kafka_to_mongo
+    image: etl_kafka_to_mongo:latest
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+        restart: true
+      kafka-1:
+        condition: service_healthy
+        restart: true
+      kafka-2:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - ./etl_kafka_to_mongo/:/app
+    networks:
+      - kafka_network
+      - etl_kafka_to_mongo_network
+
+  # Кластер ClickHouse vvvvvvvvvvvvvvvvvvvvvvvvvv
+  clickhouse-node1:
+    image: clickhouse/clickhouse-server:23
+    container_name: clickhouse-node1
+    hostname: clickhouse-node1
+    volumes:
+      - ./etl_kafka_to_ch/data/node1:/etc/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/?query=SELECT%201 || exit 1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    networks:
+      - etl_kafka_to_ch_network
+    expose:
+      - "8123"
+
+  clickhouse-node2:
+    image: clickhouse/clickhouse-server:23
+    container_name: clickhouse-node2
+    hostname: clickhouse-node2
+    volumes:
+      - ./etl_kafka_to_ch/data/node2:/etc/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/?query=SELECT%201 || exit 1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    networks:
+      - etl_kafka_to_ch_network
+    expose:
+      - "8123"
+
+  clickhouse-node3:
+    image: clickhouse/clickhouse-server:23
+    container_name: clickhouse-node3
+    hostname: clickhouse-node3
+    volumes:
+      - ./etl_kafka_to_ch/data/node3:/etc/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/?query=SELECT%201 || exit 1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    networks:
+      - etl_kafka_to_ch_network
+    expose:
+      - "8123"
+
+  clickhouse-node4:
+    image: clickhouse/clickhouse-server:23
+    container_name: clickhouse-node4
+    hostname: clickhouse-node4
+    volumes:
+      - ./etl_kafka_to_ch/data/node4:/etc/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/?query=SELECT%201 || exit 1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    networks:
+      - etl_kafka_to_ch_network
+    expose:
+      - "8123"
+  # Кластер ClickHouse ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  # ETL для передачи данных UGC из Kafka в ClickHouse
+  service_etl_kafka_to_ch:
+    container_name: ETL-KAFKA-CH
+    build:
+      context: ./etl_kafka_to_ch/
+    image: etl_kafka_to_ch:latest
+    stop_signal: SIGINT
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ./etl_kafka_to_ch/:/app
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+      kafka-0:
+        condition: service_healthy
+        restart: true
+      kafka-1:
+        condition: service_healthy
+        restart: true
+      kafka-2:
+        condition: service_healthy
+        restart: true
+      clickhouse-node1:
+        condition: service_healthy
+        restart: true
+      clickhouse-node2:
+        condition: service_healthy
+        restart: true
+      clickhouse-node3:
+        condition: service_healthy
+        restart: true
+      clickhouse-node4:
+        condition: service_healthy
+        restart: true
+    networks:
+      - etl_kafka_to_ch_network
+
+  # Кластер MongoDB vvvvvvvvvvvvvvvvvvvvvvvvvv
+  mongors1n1:
+    container_name: MongoDB-Shard1-Node1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data1:/data/db
+
+  mongors1n2:
+    container_name: MongoDB-Shard1-Node2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data2:/data/db
+
+  mongors1n3:
+    container_name: MongoDB-Shard1-Node3
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data3:/data/db
+
+  mongors2n1:
+    container_name: MongoDB-Shard2-Node1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data4:/data/db
+
+  mongors2n2:
+    container_name: MongoDB-Shard2-Node2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data5:/data/db
+
+  mongors2n3:
+    container_name: MongoDB-Shard2-Node3
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data6:/data/db
+
+  mongocfg1:
+    container_name: Mongo-Config-1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config1:/data/db
+
+  mongocfg2:
+    container_name: Mongo-Config-2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config2:/data/db
+
+  mongocfg3:
+    container_name: Mongo-Config-3
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config3:/data/db
+
+  mongos1:
+    container_name: MongoRouter-1
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongos
+    depends_on:
+      - mongocfg1
+      - mongocfg2
+      - mongocfg3
+
+  mongos2:
+    container_name: MongoRouter-2
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongos
+    depends_on:
+      - mongocfg1
+      - mongocfg2
+      - mongocfg3
+# Кластер MongoDB ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+volumes:
+  postgres_db:
+  postgres_db_auth:
+  postgres_db_profile:
+  elasticsearch_db:
+  redis_db:
+  jaeger_cinema:
+  admin_static:
+  mongo_cluster_data1:
+  mongo_cluster_data2:
+  mongo_cluster_data3:
+  mongo_cluster_data4:
+  mongo_cluster_data5:
+  mongo_cluster_data6:
+  mongo_cluster_config1:
+  mongo_cluster_config2:
+  mongo_cluster_config3:
+
+networks:
+  api_network:
+    driver: bridge
+  auth_network:
+    driver: bridge
+  analytics_network:
+    driver: bridge
+  main_network:
+    driver: bridge
+  kafka_network:
+    driver: bridge
+  etl_pg_to_es_network:
+    driver: bridge
+  etl_kafka_to_ch_network:
+    driver: bridge
+  etl_kafka_to_mongo_network:
+    driver: bridge
+  worker:
+    driver: bridge

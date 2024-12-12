@@ -1,0 +1,26 @@
+{
+  "type": "record",
+  "name": "New_films",
+  "namespace": "Notification",
+  "fields": [
+    {
+      "name": "user_group",
+      "type": "string",
+      "doc": "Группа пользователей"
+    },
+    {
+      "name": "link",
+      "type": "string",
+      "doc": "Ссылка на подборку"
+    },
+    {
+      "name": "method_send",
+      "type": {
+        "type": "enum",
+        "name": "method_send",
+        "symbols": ["email", "push", "sms", "websocket", "social_network"]
+      },
+      "doc": "Канал доставки уведомления"
+    }
+  ]
+}

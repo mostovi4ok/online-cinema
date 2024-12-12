@@ -1,0 +1,488 @@
+version: "1.0"
+services:
+  tests:
+    container_name: Tests
+    build:
+      context: ./
+    pull_policy: never
+    volumes:
+      - ./:/app/
+    command: tail -f /dev/null
+    depends_on:
+      elasticsearch_db:
+        condition: service_healthy
+        restart: true
+      redis_db:
+        condition: service_healthy
+        restart: true
+      postgres_db_auth:
+        condition: service_healthy
+        restart: true
+    networks:
+      movies:
+        aliases:
+          - tests
+
+  api:
+    container_name: API_test
+    build:
+      context: ../../api/
+    image: api:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ../../api/:/app/
+      - ./env/api.env.test:/app/.env
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      elasticsearch_db:
+        condition: service_healthy
+        restart: true
+      redis_db:
+        condition: service_healthy
+        restart: true
+    networks:
+      movies:
+        aliases:
+          - api
+
+  auth_service:
+    container_name: Auth_test
+    build:
+      context: ../../auth-service/
+    image: auth:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ../../auth-service/:/app/
+      - ./env/auth_service.env.test:/app/.env
+    expose:
+      - "8001"
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres_db_auth:
+        condition: service_healthy
+        restart: true
+      redis_db:
+        condition: service_healthy
+        restart: true
+    networks:
+      movies:
+        aliases:
+          - auth_service
+
+  profile_service:
+    container_name: Profile_test
+    build:
+      context: ../../profile-service/
+    image: profile:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ../../profile-service/:/app/
+      - ./env/profile_service.env.test:/app/.env
+    depends_on:
+      postgres_db_profile:
+        condition: service_healthy
+        restart: true
+    networks:
+      movies:
+        aliases:
+          - profile_service
+    expose:
+      - "8000"
+    logging:
+      driver: gelf
+      options:
+        gelf-address: udp://127.0.0.1:5044
+        tag: profile
+
+  analytics_collector:
+    container_name: Analytics_collector_test
+    build:
+      context: ../../analytics-collector/
+    image: analytics-collector:latest
+    volumes:
+      - ../../analytics-collector/:/app/
+      - ./env/analytics_collector.env.test:/app/.env
+    depends_on:
+      - kafka_producer
+    networks:
+      movies:
+        aliases:
+          - analytics_collector
+    expose:
+      - "5000"
+    ports:
+      - "5000:5000"
+
+  ugc_service:
+    container_name: UGC_test
+    build:
+      context: ../../ugc-service/
+    image: ugc:latest
+    pull_policy: never
+    restart: unless-stopped
+    volumes:
+      - ../../ugc-service/:/app/
+      - ./env/ugc_service.env.test:/app/.env
+    depends_on:
+      redis_db:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "8000"
+    networks:
+      movies:
+        aliases:
+          - ugc_service
+
+  kafka_producer:
+    container_name: KafkaProducer_test
+    build:
+      context: ../../kafka-producer/
+    image: kafka-producer:latest
+    volumes:
+      - ../../kafka-producer/:/app/
+      - ./env/kafka_producer.env.test:/app/.env
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+        restart: true
+      kafka-1:
+        condition: service_healthy
+        restart: true
+      kafka-2:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "5000"
+    networks:
+      movies:
+        aliases:
+          - kafka_producer
+
+  postgres_db_auth:
+    image: postgres:16.2
+    container_name: Postgres_auth_test
+    env_file: "env/postgres_auth.env.test"
+    volumes:
+      - postgres_db_auth_test:/var/lib/postgresql/data
+    ports:
+      - 5433:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auth_database"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+    networks:
+      movies:
+        aliases:
+          - postgres_db_auth
+
+  postgres_db_profile:
+    image: postgres:16.2
+    container_name: Postgres_profile_test
+    env_file: "env/postgres_profile.env.test"
+    volumes:
+      - postgres_db_profile_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d profile"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+    networks:
+      movies:
+        aliases:
+          - postgres_db_profile
+
+  elasticsearch_db:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.6.2
+    container_name: Elasticsearch_test
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 0.5GB
+    volumes:
+      - elasticsearch_db_test:/data
+    ports:
+      - 9200:9200
+    healthcheck:
+      test: curl -s http://localhost:9200 >/dev/null || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    networks:
+      movies:
+        aliases:
+          - elasticsearch_db
+
+  redis_db:
+    image: redis:latest
+    container_name: Redis_test
+    restart: unless-stopped
+    ports:
+      - 6380:6379
+    volumes:
+      - redis_db_test:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    networks:
+      movies:
+        aliases:
+          - redis_db
+
+  zookeeper:
+    container_name: Zookeeper_test
+    image: bitnami/zookeeper:3.8.0
+    restart: unless-stopped
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_PORT: 2181
+      ZOO_SERVERS: server.1=zookeeper:2888:3888
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+    healthcheck:
+      test: nc -z localhost 2181 || exit -1
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    networks:
+      movies:
+        aliases:
+          - zookeeper
+    expose:
+      - "2181"
+
+  kafka-0:
+    container_name: Kafka-0-test
+    image: bitnami/kafka:latest
+    env_file: "env/kafka-0.env.test"
+    ports:
+      - 9092:9092
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    networks:
+      movies:
+        aliases:
+          - kafka-0
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "9092"
+
+  kafka-1:
+    container_name: Kafka-1-test
+    image: bitnami/kafka:latest
+    env_file: "env/kafka-1.env.test"
+    ports:
+      - 9093:9092
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    networks:
+      movies:
+        aliases:
+          - kafka-1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "9092"
+
+  kafka-2:
+    container_name: Kafka-2-test
+    image: bitnami/kafka:latest
+    env_file: "env/kafka-2.env.test"
+    ports:
+      - 9094:9092
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    networks:
+      movies:
+        aliases:
+          - kafka-2
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "9092"
+
+  ui:
+    container_name: Kafka-UI-test
+    image: provectuslabs/kafka-ui:v0.7.0
+    environment:
+      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka-0:9092
+      - KAFKA_CLUSTERS_0_NAME=kraft
+    networks:
+      movies:
+        aliases:
+          - ui
+    expose:
+      - "8080"
+    ports:
+      - 8080:8080
+
+  # Кластер MongoDB vvvvvvvvvvvvvvvvvvvvvvvvvv
+  mongors1n1:
+    container_name: MongoDB-Shard1-Node1_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data1_test:/data/db
+
+  mongors1n2:
+    container_name: MongoDB-Shard1-Node2_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data2_test:/data/db
+
+  mongors1n3:
+    container_name: MongoDB-Shard1-Node3_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors1
+    volumes:
+      - mongo_cluster_data3_test:/data/db
+
+  mongors2n1:
+    container_name: MongoDB-Shard2-Node1_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data4_test:/data/db
+
+  mongors2n2:
+    container_name: MongoDB-Shard2-Node2_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data5_test:/data/db
+
+  mongors2n3:
+    container_name: MongoDB-Shard2-Node3_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongors2
+    volumes:
+      - mongo_cluster_data6_test:/data/db
+
+  mongocfg1:
+    container_name: Mongo-Config-1_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config1_test:/data/db
+
+  mongocfg2:
+    container_name: Mongo-Config-2_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config2_test:/data/db
+
+  mongocfg3:
+    container_name: Mongo-Config-3_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongocfg
+    volumes:
+      - mongo_cluster_config3_test:/data/db
+
+  mongos1:
+    container_name: MongoRouter-1_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongos
+    depends_on:
+      - mongocfg1
+      - mongocfg2
+      - mongocfg3
+
+  mongos2:
+    container_name: MongoRouter-2_test
+    extends:
+      file: docker-compose.mongo.yaml
+      service: mongos
+    depends_on:
+      - mongocfg1
+      - mongocfg2
+      - mongocfg3
+# Кластер MongoDB ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+volumes:
+  postgres_db_auth_test:
+  elasticsearch_db_test:
+  redis_db_test:
+  postgres_db_profile_test:
+  mongo_cluster_data1_test:
+  mongo_cluster_data2_test:
+  mongo_cluster_data3_test:
+  mongo_cluster_data4_test:
+  mongo_cluster_data5_test:
+  mongo_cluster_data6_test:
+  mongo_cluster_config1_test:
+  mongo_cluster_config2_test:
+  mongo_cluster_config3_test:
+
+networks:
+  movies:
+    driver: bridge
